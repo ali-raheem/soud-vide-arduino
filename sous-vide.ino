@@ -135,10 +135,10 @@ void getTemp() {
 
 void getButtons() {
   buttons = 0;
-  buttons &= digitalRead(BUTTON_LEFT_PIN);
-  buttons &= digitalRead(BUTTON_RIGHT_PIN);
-  buttons &= digitalRead(BUTTON_UP_PIN);
-  buttons &= digitalRead(BUTTON_DOWN_PIN);
+  buttons |= digitalRead(BUTTON_LEFT_PIN);
+  buttons |= digitalRead(BUTTON_RIGHT_PIN);
+  buttons |= digitalRead(BUTTON_UP_PIN);
+  buttons |= digitalRead(BUTTON_DOWN_PIN);
 }
 
 void err() {
