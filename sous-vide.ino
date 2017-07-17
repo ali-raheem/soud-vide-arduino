@@ -2,26 +2,29 @@
 #include <PID_v1.h>
 #include <PID_AutoTune_v0.h>
 
-#define STANDBY  0
-#define COOK  1
-#define CONFIG  2
-#define ERR 3
-#define SAVE  4
-#define AUTO  5
+// This is **rare** but my relay has inverse control.
+#define INVERSE
 
-#define BUTTON_LEFT 1<<0
+#define STANDBY 0
+#define COOK    1
+#define CONFIG  2
+#define ERR     3
+#define SAVE    4
+#define AUTO    5
+
+#define BUTTON_LEFT   1<<0
 #define BUTTON_RIGHT  1<<1
-#define BUTTON_UP 1<<2
-#define BUTTON_DOWN 1<<3
+#define BUTTON_UP     1<<2
+#define BUTTON_DOWN   1<<3
 
 #define BUTTON_LEFT_PIN   4
 #define BUTTON_RIGHT_PIN  5
-#define BUTTON_UP_PIN   6
+#define BUTTON_UP_PIN     6
 #define BUTTON_DOWN_PIN   7 
 
 // A0 is 14.
 #define TEMP_PIN  A0
-#define PID_PIN   3
+#define PID_PIN   12
 
 #define TPC_WINDOW 5000
 
@@ -36,7 +39,13 @@ double target = 60;
 double output = 0;
 unsigned int buttons = 0;
 
+
+#ifdef INVERSE
+PID myPID(&temp, &output, &target, 0, 0, 0, P_ON_M, REVERSE);
+#else
 PID myPID(&temp, &output, &target, 0, 0, 0, P_ON_M, DIRECT);
+#endif
+
 ISR(TIMER2_OVF_vect) {
   // Will have to be a TPC https://playground.arduino.cc/Code/PIDLibraryRelayOutputExample
   // To enable slow relay or SSR (zero-crossings) to function.
@@ -45,13 +54,16 @@ ISR(TIMER2_OVF_vect) {
   if (TPC_WINDOW < now - startTime) {
     startTime = now;
   }
+  #ifdef INVERSE
   digitalWrite(PID_PIN, (now - startTime < output));
+  #else
+  digitalWrite(PID_PIN, !(now - startTime < output));
+  #endif
   TCNT2 = 0;
   TIFR2 = 0;
 }
 
 void setup() {
-//  noInterrupts();
   TIMSK2 = 0;
   TCCR2B = 0;
   TCNT2 = 0;
@@ -59,7 +71,6 @@ void setup() {
   TCCR2A = 0; // COUNTER "NORMAL" mode.
   TCCR2B = (1 << CS22) + (1 << CS21) + (1 << CS20); // 255 * 1024/16MHz = 16ms
   TIMSK2 = (1 << TOIE2);
-//  interrupts();
   
   eeprom_read_block((void *) &settings, (void *) 0, sizeof(settings));
 
@@ -67,6 +78,7 @@ void setup() {
     
   myPID.SetTunings(settings.Kp, settings.Ki, settings.Kd);
   myPID.SetOutputLimits(0, TPC_WINDOW);
+  
   disablePID();
   mode = STANDBY;
 }
@@ -86,13 +98,25 @@ inline void setupPins() {
 
 void disablePID() {
   myPID.SetMode(MANUAL);
+  settings.running = false;
   output = 0;
   TIMSK2 = 0;
+  #ifdef INVERSE
+  digitalWrite(PID_PIN, HIGH);
+  #else
+  digitalWrite(PID_PIN, LOW);
+  #endif
 }
 
 void enablePID() {
   myPID.SetMode(AUTOMATIC);
   TIMSK2 = (1 << TOIE2);
+  settings.running = true;
+  #ifdef INVERSE
+  digitalWrite(PID_PIN, LOW);
+  #else
+  digitalWrite(PID_PIN, HIGH);
+  #endif
 }
 
 void getTemp() {
@@ -118,7 +142,6 @@ void err() {
 
 void standby() {
   disablePID();
-  getTemp();
   if(buttons & BUTTON_RIGHT)
     mode = CONFIG;
   if(buttons & BUTTON_DOWN)
@@ -157,6 +180,7 @@ void autoTune() {
   autoTuner.SetControlType(1); // PID
   do {
     getTemp();
+    //delay(200);
   } while(0 == autoTuner.Runtime());
   myPID.SetTunings(autoTuner.GetKp(), autoTuner.GetKp(), autoTuner.GetKd());
   mode = STANDBY;
@@ -171,9 +195,8 @@ void cook() {
 
 void loop() {
   getTemp();
-  if (AUTOMATIC == myPID.GetMode()) {
+  if (settings.running)
     myPID.Compute();
-  }
   getButtons();
   switch (mode) {
     case STANDBY:
