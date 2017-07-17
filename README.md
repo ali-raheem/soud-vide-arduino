@@ -6,4 +6,5 @@ Untested WIP, I'm bumbling through this a bit, the probably works but will it wo
 
 ## Links
 
-* https://www.youtube.com/watch?v=IdL0_ZJ7V2s - Great Scott article using Timer2 on 328p (posted a day too late!)
+* https://www.youtube.com/watch?v=IdL0_ZJ7V2s - Great Scott video article basic info timer interrupt on 328p (posted a day too late!)
+* https://playground.arduino.cc/Code/PIDLibraryRelayOutputExample - TPC to control slow outputs with latency (Relay, zero crossing SSR)

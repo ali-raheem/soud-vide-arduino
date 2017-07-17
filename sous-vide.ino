@@ -39,7 +39,6 @@ double target = 60;
 double output = 0;
 unsigned int buttons = 0;
 
-
 #ifdef INVERSE
 PID myPID(&temp, &output, &target, 0, 0, 0, P_ON_M, REVERSE);
 #else
@@ -47,8 +46,6 @@ PID myPID(&temp, &output, &target, 0, 0, 0, P_ON_M, DIRECT);
 #endif
 
 ISR(TIMER2_OVF_vect) {
-  // Will have to be a TPC https://playground.arduino.cc/Code/PIDLibraryRelayOutputExample
-  // To enable slow relay or SSR (zero-crossings) to function.
   static unsigned long startTime;
   unsigned long now = millis();
   if (TPC_WINDOW < now - startTime) {
@@ -63,17 +60,10 @@ ISR(TIMER2_OVF_vect) {
   TIFR2 = 0;
 }
 
-void setup() {
-  TIMSK2 = 0;
-  TCCR2B = 0;
-  TCNT2 = 0;
-  TIFR2 = 0;
-  TCCR2A = 0; // COUNTER "NORMAL" mode.
-  TCCR2B = (1 << CS22) + (1 << CS21) + (1 << CS20); // 255 * 1024/16MHz = 16ms
-  TIMSK2 = (1 << TOIE2);
-  
+void setup() {  
   eeprom_read_block((void *) &settings, (void *) 0, sizeof(settings));
 
+  setupTimer2();
   setupPins();
     
   myPID.SetTunings(settings.Kp, settings.Ki, settings.Kd);
@@ -81,6 +71,21 @@ void setup() {
   
   disablePID();
   mode = STANDBY;
+}
+
+inline void setupTimer2() {
+       // Timer 2 interrupt
+       // Normal mode Overflow
+       // Prescaler 1024
+       // CNT start at 0, time 255 * 1024 / 16MHz ~ 16ms
+  TIMSK2 = 0;
+  TCCR2B = 0;
+  TCCR2A = 0;
+  TCCR2B = (1 << CS22) + (1 << CS21) + (1 << CS20);
+
+  TCNT2 = 0;
+  TIFR2 = 0;
+  TIMSK2 = (1 << TOIE2);
 }
 
 inline void setupPins() {
