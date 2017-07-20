@@ -2,8 +2,11 @@
 #include <PID_v1.h>
 #include <PID_AutoTune_v0.h>
 
-// This is **rare** but my relay has inverse control.
-#define INVERSE
+// This is **rare** but my SSR has inverse control. Relays have NC and NO.
+//#define INVERSE
+
+// Debug info over Serial
+#define SERIAL_DEBUG
 
 #define STANDBY 0
 #define COOK    1
@@ -60,7 +63,12 @@ ISR(TIMER2_OVF_vect) {
   TIFR2 = 0;
 }
 
-void setup() {  
+void setup() {
+#ifdef SERIAL_DEBUG
+  Serial.begin(9600);
+  Serial.println("Sous Vide Cooker");
+  //printStatusSerial();
+#endif
   eeprom_read_block((void *) &settings, (void *) 0, sizeof(settings));
 
   setupTimer2();
@@ -105,7 +113,7 @@ void disablePID() {
   myPID.SetMode(MANUAL);
   settings.running = false;
   output = 0;
-  TIMSK2 = 0;
+//  TIMSK2 = 0;
   #ifdef INVERSE
   digitalWrite(PID_PIN, HIGH);
   #else
@@ -115,7 +123,7 @@ void disablePID() {
 
 void enablePID() {
   myPID.SetMode(AUTOMATIC);
-  TIMSK2 = (1 << TOIE2);
+//  TIMSK2 = (1 << TOIE2);
   settings.running = true;
   #ifdef INVERSE
   digitalWrite(PID_PIN, LOW);
@@ -129,12 +137,12 @@ void getTemp() {
   // if temp ready read and start a new conversion,
   // otherwise return.
   int i = analogRead(TEMP_PIN);
-  temp = i/60 *32; // or some shit.
+  temp = (double) i/16; // Actually do this.
 }
 
 
 void getButtons() {
-  buttons = 0;
+   buttons = 0;
   if(digitalRead(BUTTON_LEFT_PIN))
     buttons |= BUTTON_LEFT;
   if(digitalRead(BUTTON_RIGHT_PIN))
@@ -143,6 +151,27 @@ void getButtons() {
     buttons |= BUTTON_UP;
   if(digitalRead(BUTTON_DOWN_PIN))
     buttons |= BUTTON_DOWN;
+    
+#ifdef SERIAL_DEBUG
+  char c = 0;
+  if(Serial.available())
+    c = Serial.read();
+    switch (c) {
+      case 'w':
+        buttons |= BUTTON_UP;
+        break;
+      case 'a':
+        buttons |= BUTTON_LEFT;
+        break;
+      case 's':
+        buttons |= BUTTON_DOWN;
+        break;
+      case 'd':
+        buttons |= BUTTON_RIGHT;
+        break;
+
+    }
+#endif
 }
 
 void err() {
@@ -150,17 +179,41 @@ void err() {
 }
 
 void standby() {
+#ifdef SERIAL_DEBUG
+  Serial.println("Standby");
+  Serial.println("d) Configuration");
+  Serial.println("w) AutoTune");
+  Serial.println("s) Save Config");
+#endif
   disablePID();
   if(buttons & BUTTON_RIGHT)
     mode = CONFIG;
   if(buttons & BUTTON_DOWN)
     mode = SAVE;
-  if(buttons & BUTTON_RIGHT)
+  if(buttons & BUTTON_UP)
     mode = AUTO;
 }
 
+#ifdef SERIAL_DEBUG
+void printStatusSerial() {
+  Serial.println("------------");
+  Serial.println("Temp\tXX");
+  Serial.println("Target\tXX");
+  if(settings.running)
+    Serial.println("PID\tON");
+  else
+    Serial.println("PID\tOFF");
+  Serial.println("------------");
+}
+#endif
 void config() {
-  // do display
+#ifdef SERIAL_DEBUG
+  Serial.println("Config");
+  Serial.println("a) Standby");
+  Serial.println("d) Start");
+  Serial.println("w) Increase Target");
+  Serial.println("s) Decrease Target");
+#endif
   if(buttons & BUTTON_LEFT)
     mode = STANDBY;
   if(buttons & BUTTON_RIGHT)
@@ -196,6 +249,10 @@ void autoTune() {
 }
 
 void cook() {
+  #ifdef SERIAL_DEBUG
+  Serial.println("Cook");
+  Serial.println("a) Config");
+  #endif
   enablePID();
   // print display
   if(buttons & BUTTON_LEFT)

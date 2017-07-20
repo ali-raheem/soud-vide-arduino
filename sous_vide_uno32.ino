@@ -3,7 +3,7 @@
 #include <PID_AutoTune_v0.h>
 
 // Debug info over Serial
-//#define SERIAL_DEBUG
+#define SERIAL_DEBUG
 
 #define STANDBY 0
 #define COOK    1
@@ -16,6 +16,11 @@
 #define BUTTON_RIGHT  1<<1
 #define BUTTON_UP     1<<2
 #define BUTTON_DOWN   1<<3
+
+#ifdef SERIAL_DEBUG
+#define BUTTON_HELP 1<<4
+bool printed = false;
+#endif
 
 #define BUTTON_LEFT_PIN   4
 #define BUTTON_RIGHT_PIN  5
@@ -70,9 +75,11 @@ void eeprom_read_block(const void *data, const unsigned int addr, size_t len) {
 void setup() {
 #ifdef SERIAL_DEBUG
   Serial.begin(9600);
+  while(!Serial);
   Serial.println("Sous Vide Cooker");
   //printStatusSerial();
 #endif
+  setMaxAddress(sizeof(settings));
   eeprom_read_block((void *) &settings, 0, sizeof(settings));
 
   attachCoreTimerService(doOutput);
@@ -83,7 +90,7 @@ void setup() {
   myPID.SetOutputLimits(0, TPC_WINDOW);
   
   disablePID();
-  mode = STANDBY;
+  changeMode(STANDBY);
 }
 
 
@@ -114,9 +121,6 @@ void enablePID() {
   myPID.SetMode(AUTOMATIC);
   attachCoreTimerService(doOutput);
   settings.running = true;
-
-//  digitalWrite(PID_PIN, LOW);
-
 }
 
 void getTemp() {
@@ -130,13 +134,13 @@ void getTemp() {
 
 void getButtons() {
    buttons = 0;
-  if(digitalRead(BUTTON_LEFT_PIN))
+  if(!digitalRead(BUTTON_LEFT_PIN))
     buttons |= BUTTON_LEFT;
-  if(digitalRead(BUTTON_RIGHT_PIN))
+  if(!digitalRead(BUTTON_RIGHT_PIN))
     buttons |= BUTTON_RIGHT;
-  if(digitalRead(BUTTON_UP_PIN))
+  if(!digitalRead(BUTTON_UP_PIN))
     buttons |= BUTTON_UP;
-  if(digitalRead(BUTTON_DOWN_PIN))
+  if(!digitalRead(BUTTON_DOWN_PIN))
     buttons |= BUTTON_DOWN;
     
 #ifdef SERIAL_DEBUG
@@ -156,8 +160,12 @@ void getButtons() {
       case 'd':
         buttons |= BUTTON_RIGHT;
         break;
+      case '?':
+        buttons |= BUTTON_HELP;
+        break;
 
     }
+   // Serial.print(buttons, BIN);
 #endif
 }
 
@@ -166,19 +174,23 @@ void err() {
 }
 
 void standby() {
-#ifdef SERIAL_DEBUG
-  Serial.println("Standby");
-  Serial.println("d) Configuration");
-  Serial.println("w) AutoTune");
-  Serial.println("s) Save Config");
-#endif
   disablePID();
+#ifdef SERIAL_DEBUG
+  if(buttons & BUTTON_HELP || not printed) {
+    printed = true;
+    Serial.println("Standby");
+    printStatusSerial();
+    Serial.println("d) Configuration");
+    Serial.println("w) AutoTune");
+    Serial.println("s) Save Config");
+  }
+#endif
   if(buttons & BUTTON_RIGHT)
-    mode = CONFIG;
+    changeMode(CONFIG);
   if(buttons & BUTTON_DOWN)
-    mode = SAVE;
+    changeMode(SAVE);
   if(buttons & BUTTON_UP)
-    mode = AUTO;
+    changeMode(AUTO);
 }
 
 #ifdef SERIAL_DEBUG
@@ -195,16 +207,20 @@ inline void printStatusSerial() {
 #endif
 void config() {
 #ifdef SERIAL_DEBUG
-  Serial.println("Config");
-  Serial.println("a) Standby");
-  Serial.println("d) Start");
-  Serial.println("w) Increase Target");
-  Serial.println("s) Decrease Target");
+  if(buttons & BUTTON_HELP || not printed) {
+    printed = true;
+    Serial.println("Config");
+    printStatusSerial();
+    Serial.println("a) Standby");
+    Serial.println("d) Start");
+    Serial.println("w) Increase Target");
+    Serial.println("s) Decrease Target");
+  }
 #endif
   if(buttons & BUTTON_LEFT)
-    mode = STANDBY;
+    changeMode(STANDBY);
   if(buttons & BUTTON_RIGHT)
-    mode = COOK;
+    changeMode(COOK);
   if(buttons & BUTTON_UP)
     target += 1;
   if(buttons & BUTTON_DOWN)
@@ -212,14 +228,21 @@ void config() {
 }
 
 void save() {
+#ifdef SERIAL_DEBUG
+  Serial.println("Saving PID settings");
+#endif
   settings.Kp = myPID.GetKp();
   settings.Ki = myPID.GetKi();
   settings.Kd = myPID.GetKd();
   eeprom_write_block((const void *)&settings, 0, sizeof(settings));
-  mode = STANDBY;
+  changeMode(STANDBY);
 }
 
 void autoTune() {
+  #ifdef SERIAL_DEBUG
+  Serial.println("Autotuning...");
+  Serial.println("a) Cancel");
+#endif
   //LCD clear
   // Autotuning... Temp may be erratic. Do not run unless equilibrium.
   PID_ATune autoTuner(&temp, &output);
@@ -229,21 +252,34 @@ void autoTune() {
   autoTuner.SetControlType(1); // PID
   do {
     getTemp();
-    //delay(200);
+    getButtons();
+    if(buttons & BUTTON_LEFT) {
+      autoTuner.Cancel();
+      changeMode(STANDBY);
+      return;
+    }
   } while(0 == autoTuner.Runtime());
   myPID.SetTunings(autoTuner.GetKp(), autoTuner.GetKp(), autoTuner.GetKd());
-  mode = STANDBY;
+  changeMode(STANDBY);
 }
 
+void changeMode(unsigned int newMode) {
+  mode = newMode;
+  printed = false;
+}
 void cook() {
-  #ifdef SERIAL_DEBUG
-  Serial.println("Cook");
-  Serial.println("a) Config");
-  #endif
   enablePID();
+  #ifdef SERIAL_DEBUG
+  if(buttons & BUTTON_HELP || not printed) {
+    printed = true;
+    Serial.println("Cook");
+    printStatusSerial();
+    Serial.println("a) Config");
+  }
+  #endif
   // print display
   if(buttons & BUTTON_LEFT)
-    mode = CONFIG;
+    changeMode(CONFIG);
 }
 
 void loop() {
