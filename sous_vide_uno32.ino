@@ -39,6 +39,7 @@ struct settings_t {
 } settings;
 
 unsigned int mode = STANDBY;
+unsigned int oldMode = mode;
 double temp = 0;
 double target = 60;
 double output = 0;
@@ -47,12 +48,11 @@ unsigned int buttons = 0;
 PID myPID(&temp, &output, &target, 0, 0, 0, P_ON_M, DIRECT);
 
 uint32_t doOutput (uint32_t currentTime) {
-  static unsigned long startTime;
-  unsigned long now = millis();
-  if (TPC_WINDOW < now - startTime) {
+  static uint32_t startTime = currentTime;
+  uint32_t now = currentTime;
+  if (now - startTime > TPC_WINDOW * CORE_TICK_RATE)
     startTime = now;
-  }
-  digitalWrite(PID_PIN, (now - startTime < output));
+  digitalWrite(PID_PIN, (now - startTime < output * CORE_TICK_RATE));
   return (currentTime + 50 * CORE_TICK_RATE); //50ms
 }
 
@@ -79,7 +79,7 @@ void setup() {
   Serial.println("Sous Vide Cooker");
   //printStatusSerial();
 #endif
-  setMaxAddress(sizeof(settings));
+  EEPROM.setMaxAddress(sizeof(settings));
   eeprom_read_block((void *) &settings, 0, sizeof(settings));
 
   attachCoreTimerService(doOutput);
@@ -194,10 +194,14 @@ void standby() {
 }
 
 #ifdef SERIAL_DEBUG
-inline void printStatusSerial() {
+void printStatusSerial() {
   Serial.println("------------");
-  Serial.println("Temp\tXX");
-  Serial.println("Target\tXX");
+  Serial.print("Temp\t");
+  Serial.print(temp, DEC);
+  Serial.println();
+  Serial.println("Target\t");
+  Serial.print(target, DEC);
+  Serial.println();
   if(settings.running)
     Serial.println("PID\tON");
   else
@@ -221,10 +225,14 @@ void config() {
     changeMode(STANDBY);
   if(buttons & BUTTON_RIGHT)
     changeMode(COOK);
-  if(buttons & BUTTON_UP)
-    target += 1;
-  if(buttons & BUTTON_DOWN)
-    target -= 1;
+  if(buttons & BUTTON_UP) {
+    target += 0.25;
+    printed = false;
+  }
+  if(buttons & BUTTON_DOWN) {
+    target -= 0.25;
+    printed = false;
+  }
 }
 
 void save() {
@@ -264,11 +272,13 @@ void autoTune() {
 }
 
 void changeMode(unsigned int newMode) {
+  oldMode = mode;
   mode = newMode;
   printed = false;
 }
 void cook() {
-  enablePID();
+  if(not settings.running)
+    enablePID();
   #ifdef SERIAL_DEBUG
   if(buttons & BUTTON_HELP || not printed) {
     printed = true;
